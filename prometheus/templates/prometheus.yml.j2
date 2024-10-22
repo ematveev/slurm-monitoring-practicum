@@ -7,3 +7,7 @@ scrape_configs:
     static_configs:
       - targets: ['{{ ansible_default_ipv4.address }}:{{ prometheus_web_listen_port }}']
 
+  - job_name: 'node_exporter'
+    file_sd_configs:
+      - files:
+        - /etc/prometheus/file_sd/*.yml

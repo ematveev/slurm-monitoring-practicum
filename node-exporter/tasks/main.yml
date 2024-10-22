@@ -1,0 +1,78 @@
+---
+- name: Create node_exporter group
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+
+- name: Create node_exporter user
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /sbin/nologin
+    home: /var/lib/node_exporter
+
+- name: Create necessary directories
+  ansible.builtin.file:
+    path: "{{ node_exporter_install_dir }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: '0755'
+
+- name: Download node_exporter archive
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_url }}"
+    dest: "/tmp/node_exporter.tar.gz"
+
+- name: Extract node_exporter binary
+  ansible.builtin.unarchive:
+    src: "/tmp/node_exporter.tar.gz"
+    dest: "{{ node_exporter_install_dir }}"
+    remote_src: yes
+    creates: "{{ node_exporter_install_dir }}/node_exporter"
+
+- name: Move node_exporter binary to the bin directory
+  ansible.builtin.command:
+    cmd: mv "{{ node_exporter_install_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter" "{{ node_exporter_bin_dir }}/"
+    creates: "{{ node_exporter_bin_dir }}/node_exporter"
+
+- name: Set correct permissions on node_exporter binary
+  ansible.builtin.file:
+    path: "{{ node_exporter_bin_dir }}/node_exporter"
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: '0755'
+
+- name: Deploy systemd service for node_exporter
+  ansible.builtin.template:
+    src: "node_exporter.service.j2"
+    dest: "{{ node_exporter_service_dir }}/node_exporter.service"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: Enable and start node_exporter service
+  ansible.builtin.systemd:
+    name: node_exporter
+    enabled: yes
+    state: started
+
+- name: Add node_exporter target to Prometheus configuration
+  ansible.builtin.template:
+    src: "prometheus_target.j2"
+    dest: "{{ prometheus_config_dir }}/file_sd/{{ prometheus_target.host }}.yml"
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    mode: '0640'
+  become: yes
+  delegate_to: "{{ prometheus_server }}"
+  vars:
+    prometheus_targets:
+      - host: "{{ prometheus_target.host }}"
+        port: "{{ prometheus_target.port }}"
+  notify:
+    - Reload Prometheus
